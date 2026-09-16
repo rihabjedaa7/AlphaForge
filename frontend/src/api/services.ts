@@ -14,13 +14,16 @@ import type {
   FinalAnswerOutput,
   HealthResponse,
 } from '../types'
+import { getMockAnswer, mockMeetings } from '../mocks'
 
 /**
  * Health check endpoint (no auth required)
  * GET /health
  */
 export const checkHealth = async (): Promise<HealthResponse> => {
-  const response = await axios.get<HealthResponse>('http://localhost:8000/health')
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+  const healthUrl = apiUrl.endsWith('/api') ? `${apiUrl.slice(0, -4)}/health` : `${apiUrl}/health`
+  const response = await axios.get<HealthResponse>(healthUrl)
   return response.data
 }
 
@@ -53,6 +56,10 @@ export const listMeetings = async (): Promise<MeetingListResponse> => {
   const response = await client.get<MeetingListResponse>('/meetings')
   return response.data
 }
+
+export const listMockMeetings = (): MeetingListResponse => ({
+  meetings: mockMeetings,
+})
 
 /**
  * Get a single meeting by ID
@@ -99,11 +106,20 @@ export const searchMeetings = async (query: string, top_k?: number): Promise<Ret
  * Get answer to a question (retrieval + reasoning)
  * POST /answer
  */
-export const getAnswer = async (question: string): Promise<FinalAnswerOutput> => {
+export const getAnswerFromApi = async (question: string): Promise<FinalAnswerOutput> => {
   const response = await client.post<FinalAnswerOutput>('/answer', {
     question,
   })
   return response.data
+}
+
+export const getAnswer = async (question: string): Promise<FinalAnswerOutput> => {
+  if (import.meta.env.VITE_USE_MOCK_API !== 'false') {
+    await new Promise((resolve) => window.setTimeout(resolve, 650))
+    return getMockAnswer(question)
+  }
+
+  return getAnswerFromApi(question)
 }
 
 // ===== Voice Agent API =====
