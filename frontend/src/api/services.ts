@@ -66,7 +66,7 @@ export const listMockMeetings = (): MeetingListResponse => ({
  * GET /meetings/{meeting_id}
  */
 export const getMeeting = async (meeting_id: string): Promise<Meeting> => {
-  const response = await client.get<Meeting>(`/meetings/${meeting_id}`)
+  const response = await client.get<Meeting>(`/meetings/${encodeURIComponent(meeting_id)}`)
   return response.data
 }
 
@@ -75,7 +75,7 @@ export const getMeeting = async (meeting_id: string): Promise<Meeting> => {
  * GET /meetings/{meeting_id}/transcript
  */
 export const getTranscript = async (meeting_id: string): Promise<TranscriptOutput> => {
-  const response = await client.get<TranscriptOutput>(`/meetings/${meeting_id}/transcript`)
+  const response = await client.get<TranscriptOutput>(`/meetings/${encodeURIComponent(meeting_id)}/transcript`)
   return response.data
 }
 
@@ -84,7 +84,7 @@ export const getTranscript = async (meeting_id: string): Promise<TranscriptOutpu
  * GET /meetings/{meeting_id}/segments
  */
 export const getSegments = async (meeting_id: string): Promise<SegmentListResponse> => {
-  const response = await client.get<SegmentListResponse>(`/meetings/${meeting_id}/segments`)
+  const response = await client.get<SegmentListResponse>(`/meetings/${encodeURIComponent(meeting_id)}/segments`)
   return response.data
 }
 
@@ -97,7 +97,7 @@ export const getSegments = async (meeting_id: string): Promise<SegmentListRespon
 export const searchMeetings = async (query: string, top_k?: number): Promise<RetrievalOutput> => {
   const response = await client.post<RetrievalOutput>('/search', {
     query,
-    top_k: top_k || 5,
+    top_k: top_k ?? 5,
   })
   return response.data
 }
@@ -114,7 +114,7 @@ export const getAnswerFromApi = async (question: string): Promise<FinalAnswerOut
 }
 
 export const getAnswer = async (question: string): Promise<FinalAnswerOutput> => {
-  if (import.meta.env.VITE_USE_MOCK_API !== 'false') {
+  if (import.meta.env.VITE_USE_MOCK_API === 'true') {
     await new Promise((resolve) => window.setTimeout(resolve, 650))
     return getMockAnswer(question)
   }

@@ -4,7 +4,7 @@
 
 The frontend is a single-page React + Vite + TypeScript experience for Conversation Memory Voice Agent. It lets a user ask a meeting-memory question, view the contract-defined final answer, inspect chronological evidence, and select evidence for audio navigation.
 
-The backend is not required for the current development flow. `getAnswer(question)` uses contract-aligned mock data by default and can switch to `POST /api/answer` without changing the UI components.
+The frontend now uses the backend API by default. `getAnswer(question)` calls `POST /api/answer`, while the retrieval services call the documented `POST /api/search` and `GET /api/meetings/{meeting_id}/segments` endpoints. Contract-aligned mock data remains available as an explicit local fallback while the backend is unavailable.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ The backend is not required for the current development flow. `getAnswer(questio
 App state and interaction handlers
   -> reusable UI components
   -> api/services.ts abstraction
-  -> mock implementation (default) or real HTTP implementation
+  -> real HTTP implementation (default) or opt-in mock implementation
   -> FinalAnswerOutput / Meeting contract types
 ```
 
@@ -25,7 +25,7 @@ frontend/src/
   api/
     client.ts       Axios client and Authorization header
     errors.ts       User-facing API error mapping
-    services.ts     Meeting, search, answer, and health services
+    services.ts     Meeting, search, segments, answer, and health services
   components/
     AnswerCard.tsx
     AudioPlayer.tsx
@@ -69,11 +69,18 @@ The answer payload is the source of truth for the evidence timeline. The selecte
 - `Authorization: Bearer <VITE_APP_API_KEY>` on protected requests.
 - JSON request headers.
 
-`src/api/services.ts` contains the endpoint functions for meetings, transcripts, segments, search, answer, and the voice tool. `getAnswerFromApi(question)` maps to `POST /answer` on the configured API base URL. `getAnswer(question)` is the UI-facing abstraction.
+`src/api/services.ts` contains typed endpoint functions for meetings, transcripts, segments, search, answer, and the voice tool:
+
+- `searchMeetings(query, top_k)` sends `{ query, top_k }` to `POST /api/search` and returns `RetrievalOutput`.
+- `getSegments(meeting_id)` calls `GET /api/meetings/{meeting_id}/segments` and returns `SegmentListResponse`.
+- `getAnswerFromApi(question)` sends `{ question }` to `POST /api/answer` and returns `FinalAnswerOutput`.
+- `getMeeting(meeting_id)` loads meeting metadata, including `audio_url`, after evidence selection.
+
+Path parameters are URL encoded. The UI-facing `getAnswer(question)` function selects the real answer service by default, preserving the component boundary for future changes.
 
 The health endpoint is intentionally separate from protected API routes and should remain unauthenticated when connected to the backend.
 
-## Mock Data
+## Mock Data and API Mode
 
 Mock data lives under `src/mocks`, not in UI components. `getMockAnswer(question)` returns:
 
@@ -83,7 +90,7 @@ Mock data lives under `src/mocks`, not in UI components. `getMockAnswer(question
 
 `mockMeetings` contains three ready meetings with contract fields. Their `audio_url` values are empty because no local audio assets are currently available; this deliberately activates the audio fallback instead of requesting broken URLs.
 
-Mock mode is enabled unless `VITE_USE_MOCK_API=false`. This keeps the backend switch explicit while making the default development experience immediately usable.
+Real API mode is enabled unless `VITE_USE_MOCK_API=true`. This makes the deployed or shared frontend use the backend without requiring a code change. Set the variable to `true` only when the backend is unavailable and the mock answer fixtures are needed. Mock mode also uses mock meeting metadata when an evidence row is selected.
 
 ## Contract Types
 
@@ -102,7 +109,7 @@ Integer `start_time` values are used for audio seeking. Display `timestamp` valu
 
 1. The user submits a text question or chooses an example question.
 2. `App.handleAsk` clears the prior selection, sets loading state, and calls `getAnswer(question)`.
-3. The mock or real service returns `FinalAnswerOutput`.
+3. The real API or explicit mock service returns `FinalAnswerOutput`.
 4. `AnswerCard` renders the natural answer and final decision status.
 5. `DecisionTimeline` orders `evidence[]` chronologically by `start_time`.
 6. Selecting a row stores that evidence in `App` and passes its `start_time` to `AudioPlayer`.
@@ -115,7 +122,7 @@ The frontend reads only:
 ```text
 VITE_API_URL=http://localhost:8000/api
 VITE_APP_API_KEY=
-VITE_USE_MOCK_API=true
+  VITE_USE_MOCK_API=false
 ```
 
 `VITE_APP_API_KEY` is attached as a bearer token by the API client. `APP_API_KEY` belongs to the backend and is never read by frontend code. Vite environment variables are browser-visible, so this shared key is suitable only for the documented hackathon MVP and must be replaced with real user authentication for a public product.
@@ -135,19 +142,22 @@ The layout collapses from a two-column workspace to one column on smaller screen
 
 The visual system uses deep maroon accents, white surfaces, light neutral backgrounds, subtle borders, restrained motion, and no CSS gradients.
 
-## Replacing Mock APIs With The Backend
+## API Configuration and Mock Fallback
 
 1. Add `VITE_API_URL` and `VITE_APP_API_KEY` to the frontend environment.
-2. Set `VITE_USE_MOCK_API=false`.
-3. Ensure the backend serves the documented route at `POST /api/answer` and returns the exact `FinalAnswerOutput` shape.
-4. Keep the existing `getAnswer(question)` call in `App.tsx`; the service chooses the real implementation.
-5. Replace empty `Meeting.audio_url` values with backend-served audio paths when recordings are ready.
+2. Leave `VITE_USE_MOCK_API` unset or set it to `false` for real API mode.
+3. Set `VITE_USE_MOCK_API=true` only for the local mock fallback.
+4. Ensure the backend serves `POST /api/answer` with the exact `FinalAnswerOutput` shape.
+5. Ensure retrieval consumers use the documented `POST /api/search` and `GET /api/meetings/{meeting_id}/segments` response shapes.
+6. On evidence selection, `getMeeting(meeting_id)` loads the backend `Meeting.audio_url` for the audio player.
+
+The UI keeps calling `getAnswer(question)` and service functions rather than issuing fetches directly, so changing between the live and mock implementations does not require component changes.
 
 No component should need to change for the answer API swap.
 
 ## Important Assumptions
 
-- The backend and audio assets are not ready, so mock mode is the default.
+- The backend is not running in this workspace, so live requests cannot be exercised locally; mock mode is available but is no longer the default.
 - Voice input is a non-breaking visual staging area. It does not pretend to perform transcription and does not block text questions.
 - The contract's integer timestamps are authoritative for seeking. Display strings are not used as a source of truth.
 - The current frontend does not introduce analytics, confidence scores, user accounts, fake meeting counts, or unsupported dashboard metrics.
@@ -167,10 +177,11 @@ The Vite development server uses port `5173` by default. For a production check:
 npm run build
 ```
 
-The current repository does not include a frontend test runner. The mock flow can be exercised immediately with the database example question, the API example question, and an unrelated question to verify resolved and unresolved states. Timeline selection can be checked by selecting each evidence row; with real audio attached, the player seeks to its `start_time`.
+The current repository does not include a frontend test runner. With the backend running, submit a question to exercise `POST /api/answer`, select evidence to exercise `GET /api/meetings/{meeting_id}`, and use the service layer for `POST /api/search` and `GET /api/meetings/{meeting_id}/segments`. With `VITE_USE_MOCK_API=true`, the database example question and an unrelated question verify resolved and unresolved states without a backend. Timeline selection seeks to the selected evidence `start_time` when the returned meeting has audio.
 
 ## Remaining Limitations
 
 - AssemblyAI managed voice-agent integration is not implemented until the backend voice contract is ready.
-- No local mock audio files are present, so the player currently displays its intentional fallback.
+- The backend is not running in the current workspace, so live endpoint behavior and CORS cannot be browser-tested here.
+- No local mock audio files are present, so mock mode displays the intentional audio fallback.
 - Automated browser tests are not configured yet.

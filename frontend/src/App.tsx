@@ -4,15 +4,16 @@ import VoiceInput from './components/VoiceInput'
 import DecisionTimeline from './components/DecisionTimeline'
 import AnswerCard from './components/AnswerCard'
 import AudioPlayer from './components/AudioPlayer'
-import { getAnswer } from './api/services'
+import { getAnswer, getMeeting } from './api/services'
 import { getUserFacingError } from './api/errors'
 import { mockMeetings } from './mocks'
-import type { Evidence, FinalAnswerOutput } from './types'
+import type { Evidence, FinalAnswerOutput, Meeting } from './types'
 
 function App() {
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState<FinalAnswerOutput | null>(null)
   const [selectedEvidence, setSelectedEvidence] = useState<Evidence | null>(null)
+  const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -21,6 +22,7 @@ function App() {
     setIsLoading(true)
     setError(null)
     setSelectedEvidence(null)
+    setSelectedMeeting(null)
 
     try {
       const nextAnswer = await getAnswer(nextQuestion)
@@ -34,9 +36,21 @@ function App() {
     }
   }
 
-  const selectedMeeting = selectedEvidence
-    ? mockMeetings.find((meeting) => meeting.meeting_id === selectedEvidence.meeting_id)
-    : undefined
+  const handleEvidenceSelect = async (evidence: Evidence) => {
+    setSelectedEvidence(evidence)
+    setError(null)
+
+    try {
+      const meeting = import.meta.env.VITE_USE_MOCK_API === 'true'
+        ? mockMeetings.find((item) => item.meeting_id === evidence.meeting_id) || null
+        : await getMeeting(evidence.meeting_id)
+      setSelectedMeeting(meeting)
+    } catch (requestError) {
+      console.error(requestError)
+      setSelectedMeeting(null)
+      setError(getUserFacingError(requestError))
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -48,7 +62,7 @@ function App() {
           </a>
           <div className="header-context">
             <span className="connection-dot" aria-hidden="true" />
-            Mock memory online
+            {import.meta.env.VITE_USE_MOCK_API === 'true' ? 'Mock memory' : 'API memory'}
           </div>
         </div>
       </header>
@@ -68,8 +82,8 @@ function App() {
             {isLoading && <div className="loading-state" role="status"><span className="loading-line" /> Searching meeting memory...</div>}
             {error && <div className="error-state" role="alert"><strong>Could not complete the search.</strong><span>{error}</span></div>}
             <AnswerCard answer={answer} />
-            <DecisionTimeline evidence={answer?.evidence || []} selectedEvidence={selectedEvidence} onSelect={setSelectedEvidence} />
-            <AudioPlayer url={selectedMeeting?.audio_url || undefined} seekTo={selectedEvidence?.start_time} meetingTitle={selectedEvidence?.meeting_title} />
+            <DecisionTimeline evidence={answer?.evidence || []} selectedEvidence={selectedEvidence} onSelect={handleEvidenceSelect} />
+            <AudioPlayer url={selectedMeeting?.audio_url || undefined} seekTo={selectedEvidence?.start_time} meetingTitle={selectedMeeting?.title || selectedEvidence?.meeting_title} />
           </div>
         </div>
       </main>
